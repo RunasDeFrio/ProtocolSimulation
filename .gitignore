@@ -136,6 +136,7 @@ dmypy.json
 *.autosave
 
 ### VisualStudioCode ###
+.vscode
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json

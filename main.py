@@ -1,17 +1,25 @@
 import sys  # sys нужен для передачи argv в QApplication
 from PyQt5 import QtWidgets
-import pyqtgraph as pg
-import pyqtgraph.exporters
-import numpy as np
+import locale
 import design
 from model import System
+from simulator import Simulator
+from optimizer import Optimizer
+from TesterRandomGenerators import TesterRandomGenerators
+from TesterRandomCorelGenerator import TesterRandomCorelGenerator
+import generators
+import math
+import random
 
 class ExampleApp(QtWidgets.QMainWindow, design.Ui_MainWindow):
     def __init__(self):
         # Это здесь нужно для доступа к переменным, методам
         # и т.д. в файле design.py
-        ColumnLabels =  ["Время(сек:мсек)","Производительность системы (пакетов/сек)", "Качество сообщений", 
+        self.ColumnLabels =  ["Время(сек:мсек)","Производительность системы (пакетов/сек)", "Качество сообщений", 
         "Количество уничтоженных сообщений", "Средняя стоимость передачи одного сообщения", "Событие"]
+
+        self.ColumnLabelsOptomum = ["Порог искажений", "Производительность системы (пакетов/сек)", "Качество сообщений", 
+        "Количество уничтоженных сообщений", "Средняя стоимость передачи одного сообщения"]
         super().__init__()
         self.setupUi(self)  # Это нужно для инициализации нашего дизайна
 
@@ -19,203 +27,140 @@ class ExampleApp(QtWidgets.QMainWindow, design.Ui_MainWindow):
         self.progressBar.setMaximum(100)
         self.progressBar.setValue(0)
 
-        self.modelProtocol.setColumnCount(len(ColumnLabels))
-        self.modelProtocol.setHorizontalHeaderLabels(ColumnLabels)
+        self.Simulator = Simulator()
+        self.Optimizer = Optimizer()
+        self.TesterRandomGenerators = TesterRandomGenerators()
+        self.TesterRandomCorelGenerator = TesterRandomCorelGenerator()
+
+
+        self.modelProtocol.setColumnCount(len(self.ColumnLabels))
+        self.modelProtocol.setHorizontalHeaderLabels(self.ColumnLabels)
         self.modelProtocol.setSelectionBehavior( QtWidgets.QAbstractItemView.SelectRows )
         self.modelProtocol.horizontalHeader().setStretchLastSection( True )
         self.modelProtocol.resizeColumnsToContents()
         self.modelProtocol.setShowGrid(True)
-        self.update_graph()
-        self.startButton.clicked.connect(self.Start)
-        #self.optButton.clicked.connect(self.CreateOptimum)
-        #self.calcOpt.clicked.connect(self.CalcOptimum)
-        
-    def Start(self):
+        self.startButton.clicked.connect(self.Simulation)
+        self.optButton.clicked.connect(self.CreateOptimum)
+        self.calcOpt.clicked.connect(self.CalcOptimum)
+
+        self.CalcTestsButt.clicked.connect(self.TestGenerators)
+        self.CalcCorelTestButt.clicked.connect(self.TestCorelGenerator)
+
+
+    def PushInTable(self, table, collums):
+        i = table.rowCount()
+        table.insertRow(i)
+        for index, val in enumerate(collums):
+            table.setItem(i, index, QtWidgets.QTableWidgetItem(str(val)))
+    
+    def ClearTable(self, table, head):
         #очистка и заполнение таблицы
-        ColumnLabels =  ["Время(сек:мсек)","Производительность системы (пакетов/сек)", "Качество сообщений", 
-        "Количество уничтоженных сообщений", "Средняя стоимость передачи одного сообщения", "Событие"]
-        self.modelProtocol.clear()
-        self.modelProtocol.setRowCount(0)
-        self.modelProtocol.setColumnCount(len(ColumnLabels))
-        self.modelProtocol.setHorizontalHeaderLabels(ColumnLabels)
+        table.clear()
+        table.setRowCount(0)
+        table.setColumnCount(len(head))
+        table.setHorizontalHeaderLabels(head)
+
+    def ScrollAndResizeTable(self, table):
+        #прокрутка таблицы вниз
+        table.scrollToBottom()
+        table.horizontalHeader().setStretchLastSection(True)
+        table.resizeColumnsToContents()
+
+    def Simulation(self):
+        #очистка и заполнение таблицы
+        self.ClearTable(self.modelProtocol, self.ColumnLabels)
 
         #Получение настроек
-        isRandom = self.checkBox_2.isChecked()
-        isRandomCorel = self.checkBox_3.isChecked()
-        needFile = self.checkBox_5.isChecked()
+        allTime = locale.atof(self.timeEdit.text())
+        N = locale.atoi(self.lineN.text())
 
-        N = int(self.lineN.text())
+        isRandom      = self.isRandom.isChecked()
+        isRandomCorel = self.isRandomCorel.isChecked()
+        needFile      = self.needFile.isChecked()
 
-        allTime = float(self.timeEdit.text())
+        quality = locale.atof(self.qualityEdit.text())
+        self.Simulator.Init(allTime, N, quality, isRandom, isRandomCorel)
+        self.Simulator.Simulate(self.modelProtocol, self, needFile, self.ColumnLabels, self.progressBar)
 
-        #Работа с файлом
-        f = None
-        if(needFile):
-            f = open('Protocol.txt', 'w')
-            for text in ColumnLabels:
-                f.write(text+". ")
-            f.write('\n')
-        #Текст события
-        event = ""
-        #Передача настроек в модель
-        Model = System(N, isRandom, isRandomCorel)
-        passTime = Model.modelTime * Model.timeFactor
+        #прокрутка таблицы вниз и ресайз
+        self.ScrollAndResizeTable(self.modelProtocol)
 
-        #========Начало симуляции========
-        while(passTime < allTime):
-            #обновление модели
-            Model.Update()
-            passTime = Model.modelTime * Model.timeFactor
-            #обновление прогресс бара
-            self.progressBar.setValue(int((100*passTime)/allTime))
-            #Получение события
-            event = Model.GetEvent()
-            #вывод в таблицу
-            if(event!=""):
-                i = self.modelProtocol.rowCount()
-                self.modelProtocol.insertRow(i)
-                self.modelProtocol.setItem(i,0, QtWidgets.QTableWidgetItem(self.getTime(passTime)))
-                self.modelProtocol.setItem(i,1, QtWidgets.QTableWidgetItem(str(100*Model.GetSystemPerformance())))
-                self.modelProtocol.setItem(i,2, QtWidgets.QTableWidgetItem(str(100*Model.GetMessageQuality())))
-                self.modelProtocol.setItem(i,3, QtWidgets.QTableWidgetItem(str(Model.countDestroingPackage)))
-                self.modelProtocol.setItem(i,4, QtWidgets.QTableWidgetItem(str(Model.GetCostTransmitting())))
-                self.modelProtocol.setItem(i,5, QtWidgets.QTableWidgetItem(event))
-            #вывод в файл
-            if(needFile):   
-                if(event!=""):
-                    f.write(self.getTime(passTime) + ' : ')
-                    f.write(str(100*Model.GetSystemPerformance()) + ' : ')
-                    f.write(str(100*Model.GetMessageQuality()) + ' : ')
-                    f.write(str(Model.countDestroingPackage) + ' : ')
-                    f.write(str(Model.GetCostTransmitting()) + ' : ')
-                    f.write(event +'\n')
-        #========Конец симуляции========
+    def TestCorelGenerator(self):
+        y_min  = locale.atof(self.yminEdit.text())
+        y_max    = locale.atof(self.ymaxEdit.text())
+        dt = locale.atof(self.dtEdit.text())
+        N = locale.atoi(self.N_edit_2.text())
+        m = locale.atoi(self.m_edit_2.text())
+        C = [locale.atof(self.c0Edit.text()), 
+            locale.atof(self.c1Edit.text()), 
+            locale.atof(self.c2Edit.text()),
+            locale.atof(self.c3Edit.text())]
+        self.TesterRandomCorelGenerator.Init(N, m, y_min, y_max, dt, C)
+        self.TesterRandomCorelGenerator.Calc(self, self.plot_corel)
+
+    def TestGenerators(self):
+        sigma  = locale.atof(self.lineSigma_2.text())
+        mat    = locale.atof(self.lineM_2.text())
+        lambd = locale.atof(self.lineLamda_2.text())
+        N = locale.atoi(self.N_edit.text())
+        m = locale.atoi(self.m_edit.text())
+        t = locale.atoi(self.tauEdit.text())
+        if t > N:
+            t = N
+        #Выберем метод для тестирования
+        randMetod = self.randMethod.currentText()
+        randFunc  = self.funcMethod.currentText()
+        #Выберем метод генерации
+        if randMetod == "Метод серединных квадратов":
+            randF1 = generators.RandomMiddleSqr(0.14159265358979323846)
+            randF2 = generators.RandomMiddleSqr(0.71828182845904523541)
+        elif randMetod =="Метод иррационального числа":
+            randF1 = generators.RandomIrrational(math.pi)
+            randF2 = generators.RandomIrrational(math.e)
+        elif randMetod =="Конгруэнтный метод":
+            randF1 = generators.RandomCongruent(random.randint(0, 10000))
+            randF2 = generators.RandomCongruent(random.randint(0, 10000))
+        else: return
+        #Выберем функцию распределения
+        if randFunc == "Экспоненциальное распределение":
+            isNormal = False
+            rand = generators.RandomExp(lambd, randF1)
+        elif randFunc =="Нормальное распределение":
+            isNormal = True
+            rand = generators.RandomNormal(mat, sigma , randF1, randF2)
+        else: return
+
+        self.TesterRandomGenerators.Init(m, N, lambd, mat, sigma, rand, t, isNormal)
+        self.TesterRandomGenerators.Calc(self, self.plot_fx, self.plot_Fx)
+
         
-        #прокрутка таблицы вниз
-        self.modelProtocol.scrollToBottom()
-        self.modelProtocol.horizontalHeader().setStretchLastSection(True)
-        self.modelProtocol.resizeColumnsToContents()
-
-    #Секунды в форматированную строку
-    def getTime(self, time):
-        return (str(int(time))+":"+str(int(time*1000)%1000) + "."+str(int(time*10000)%10))
-    
-
     def CreateOptimum(self):
-        #очистка и заполнение таблицы
-        ColumnLabels = ["Производительность системы (пакетов/сек)", "Качество сообщений", 
-        "Количество уничтоженных сообщений", "Средняя стоимость передачи одного сообщения"]
-        self.modelProtocol.clear()
-        self.modelProtocol.setRowCount(0)
-        self.modelProtocol.setColumnCount(len(ColumnLabels))
-        self.modelProtocol.setHorizontalHeaderLabels(ColumnLabels)
+        #очистка и заполнение таблицы        
+        self.ClearTable(self.optimumTable, self.ColumnLabelsOptomum)
 
         #Получение диапазона параметра для моделирования
-        Nmin = int(self.linemin1.text())
-        Nmax = int(self.linemax1.text())
+        Nmin = int(self.lineNmin.text())
+        Nmax = int(self.lineNmax.text())
+        allTime = float(self.timeEditOpt.text())
         
+        quality = locale.atof(self.qualityEdit_2.text())
+
         #Получение настроек
-        isRandom = self.checkBox_2.isChecked()
-        isRandomCorel = self.checkBox_3.isChecked()
-        needFile = self.checkBox_5.isChecked()
+        isRandom      = self.isRandomOpt.isChecked()
+        isRandomCorel = self.isRandomCorelOpt.isChecked()
+        needFile      = self.needFileOpt.isChecked()
 
-        allTime = int(self.timeEdit.text())
+        self.Optimizer.Init(allTime, Nmin, Nmax, quality, isRandom, isRandomCorel)
+        self.Optimizer.CreateOptimum(self.optimumTable, self, needFile, self.ColumnLabelsOptomum, self.progressBar_2)
 
-        #Работа с файлом
-        f = None
-        if(needFile):
-            f = open('Protocol.txt', 'w')
-            for text in ColumnLabels:
-                f.write(text+". ")
-            f.write('\n')
-        
-        #Перебор всех значений N
-        for N in range(Nmin, Nmax+1):
-            print(N, ":")
-            #Передача настроек в модель
-            Model = System(N, isRandom, isRandomCorel)
-            #========Начало симуляции========
-            while(Model.modelTime < allTime):
-                #обновление модели
-                Model.Update()
-                #обновление времени
-                
-            if(Nmax-Nmin > 0):
-                self.progressBar.setValue((100*(N-Nmin))//(Nmax-Nmin))
-            else:
-                self.progressBar.setValue(100)
-            #вывод в таблицу
-            if(needTable):
-                i = self.modelProtocol.rowCount()
-                self.modelProtocol.insertRow(i)
-                self.modelProtocol.setItem(i,0, QtWidgets.QTableWidgetItem(str(N)))
-                self.modelProtocol.setItem(i,1, QtWidgets.QTableWidgetItem(str(100*Model.GetSystemPerformance())))
-                self.modelProtocol.setItem(i,2, QtWidgets.QTableWidgetItem(str(100*Model.GetMessageQuality())))
-                self.modelProtocol.setItem(i,3, QtWidgets.QTableWidgetItem(str(Model.countDestroingPackage)))
-                self.modelProtocol.setItem(i,3, QtWidgets.QTableWidgetItem(str(Model.GetCostTransmitting())))
-
-            #вывод в файл
-            if(needFile):
-                f.write(str(N)+' : ')
-                f.write(str(100*Model.GetSystemPerformance()) + ' : ')
-                f.write(str(100*Model.GetMessageQuality()) + ' : ')
-                f.write(str(Model.countDestroingPackage) + ' : ')
-                f.write(str(Model.GetCostTransmitting()) + '\n')
+        #прокрутка таблицы вниз и ресайз
+        self.ScrollAndResizeTable(self.optimumTable)
 
     def CalcOptimum(self):
-        rowCount = self.modelProtocol.rowCount()
-        columnCount = self.modelProtocol.columnCount()
-        
-        arrayPareto = list()
+        self.ClearTable(self.optimumOutTable, self.ColumnLabelsOptomum)
+        self.Optimizer.CalcOptimum(self.optimumOutTable, self.optimumTable, self)
+        self.ScrollAndResizeTable(self.optimumOutTable)
 
-        for i in range(0, rowCount):
-            element = list()
-            for j in range(0, columnCount):
-                element.append(float(self.modelProtocol.item(i, j).text()))
-            
-            arrayPareto.append(element)
-
-        i = 0
-        while (i < len(arrayPareto)):
-            j = 0
-            while (j < len(arrayPareto)):
-                if ((j != i) and (arrayPareto[i][1] <= arrayPareto[j][1]) and (arrayPareto[i][2] <= arrayPareto[j][2]) and (arrayPareto[i][3] >= arrayPareto[j][3])):
-                    arrayPareto.pop(j)
-                    j -= 1
-                    if (i > j):
-                        i -= 1
-                j+=1
-            i += 1
-
-        ColumnLabels = ["Производительность системы (пакетов/сек)", "Качество сообщений", 
-        "Количество уничтоженных сообщений", "Средняя стоимость передачи одного сообщения"]
-        self.modelProtocol.clear()
-        self.modelProtocol.setRowCount(0)
-        self.modelProtocol.setColumnCount(len(ColumnLabels))
-        self.modelProtocol.setHorizontalHeaderLabels(ColumnLabels)
-
-        for i, mass in enumerate(arrayPareto):
-            self.modelProtocol.insertRow(i)
-            for j, data in enumerate(mass):
-                self.modelProtocol.setItem(i,j, QtWidgets.QTableWidgetItem(str(data)))
-
-    def update_graph(self):
-
-        fs = 500
-        f = 25
-        ts = 1/fs
-        length_of_signal = 100
-        t = np.linspace(0,1,length_of_signal)
-        
-        cosinus_signal = np.cos(2*np.pi*f*t)
-        sinus_signal = np.sin(2*np.pi*f*t)
-
-        self.MplWidget.canvas.axes.clear()
-        self.MplWidget.canvas.axes.plot(t, cosinus_signal)
-        self.MplWidget.canvas.axes.plot(t, sinus_signal)
-        self.MplWidget.canvas.axes.legend(('cosinus', 'sinus'),loc='upper right')
-        self.MplWidget.canvas.axes.set_title('Cosinus - Sinus Signal')
-        self.MplWidget.canvas.draw()
 
 def main():
     app = QtWidgets.QApplication(sys.argv)  # Новый экземпляр QApplication

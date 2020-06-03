@@ -78,10 +78,10 @@ class RandomCorrel:
     def __init__(self, y_min, y_max, _C, _singleRand = None):
     
         if(_singleRand == None):
-            self.singleRand = RandomNormal(1, 0, RandomCongruent(random.randint(0, 10000)),RandomCongruent(random.randint(0, 10000)))
+            self.singleRand = RandomNormal(0, 1, RandomCongruent(random.randint(0, 10000)),RandomCongruent(random.randint(0, 10000)))
         else:
             self.singleRand =_singleRand
-        self.M = (y_max+y_min)/2
+        self.M = (y_max-y_min)/2
         self.q0 = self.singleRand.rand()
         self.q1 = self.singleRand.rand()
         self.q2 = self.singleRand.rand()
@@ -89,9 +89,9 @@ class RandomCorrel:
         self.C = _C
 
     def rand(self):
-        rand = self.C[0]*self.q0+self.C[1]*self.q1+self.C[2]*self.q2+self.C[3]*self.q3+self.M
+        r = self.C[0]*self.q0+self.C[1]*self.q1+self.C[2]*self.q2+self.C[3]*self.q3+self.M
         self.q0=self.q1 
         self.q1=self.q2 
         self.q2=self.q3 
         self.q3=self.singleRand.rand()
-        return rand
+        return r

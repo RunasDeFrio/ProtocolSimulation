@@ -27,13 +27,11 @@ class Channel:
 
         #генераторы случайных значений
         randt1 = generators.RandomNormal(5, 1) #в миллисекундах
-        randt2 = generators.RandomNormal(6, 3) #в миллисекундах
         randt3 = generators.RandomNormal(3, 1) #в миллисекундах
-        randn = generators.RandomCorrel(0, 2, [0.309808713, 0.11418643, 0.042066224, 0.017932212])#данные из 3 пункта
+        randn = generators.RandomCorrel(0, 2, [0.333333332979894, 0.000015350131228, 0.00000000070688, 0.000000000000033])#данные из 3 пункта
 
         #статические значения
         self.t1  = RandomValue(5.0, randt1, isRandom)  #Время передачи пакета по каналу
-        self.t2  = RandomValue(6.0, randt2, isRandom)  #Интервал поступления нового пакета
         self.t3  = RandomValue(3.0, randt3, isRandom)  #Время ускоренной передачи пакета по каналу
         self.N   = N  #Лимит кол-ва искажений
         self.n   = RandomValue(1.0, randn, isRandomCorrel)  #скорость возникновения искажений
@@ -47,29 +45,12 @@ class Channel:
         self.havePackage = False      #передаётся ли пакет по каналу
         self.acceleration = False     #включено ли ускорения канала
         self.channelSpeed = 1/self.t1.GetGreaterZero() #скорость прохождения 1 пакета данных через канал
-        self.timerNewPackage = 0.0   #таймер отчёта прибытия нового пакета
         self.packageComplete = 0.0    #процент прибытия пакета
         self.distortions = 0.0        #счётчик искажений
 
 
     def Update(self):
-        #обрабатываем поступление нового пакета
-        if(self.timerNewPackage > 0.0):
-            self.timerNewPackage -= self.System.deltaTime
-        else: 
-            #если канал не занят - передаём по нему пакет
-            if(not self.havePackage):
-                self.eventStr += "Канал " + str(self.i) +" начал передачу пакета."
-                self.havePackage = True
-                self.distortions = 0.0 #обнуляем счётчик искажений
-                self.packageComplete = 0.0 #обнуляем процент прибытия пакета
-                if(self.isRandom):
-                    self.UpdateSpeed() #обновляем скорость (имеет смысл только для случайной модели)
-
-            #заного выставляем таймер
-            self.timerNewPackage = self.t2.Get()
-
-        #обрабатываем процесс передачи пакета по каналу
+         #обрабатываем процесс передачи пакета по каналу
         if(self.havePackage):
             #проверяем сколько искажений в пакете
             if(self.distortions > self.N):
@@ -111,7 +92,7 @@ class Channel:
 
 
 class System:
-    def __init__(self, N, isRandom = False, isRandomCorrel = False):
+    def __init__(self, N, quality, isRandom = False, isRandomCorrel = False):
         #Настройки параметров моделирования
         self.isRandom = isRandom
         self.isRandomCorrel = isRandomCorrel
@@ -122,7 +103,14 @@ class System:
         self.modelTime = 0
         self.deltaTime = 0.1 #в миллисекундах
         self.timeFactor = 0.001 #коэфициент перевода секунд во время модели
+        #Переменные для моделирования
+        self.timerNewPackage = 0.0   #таймер отчёта прибытия нового пакета
+        randt2 = generators.RandomNormal(6, 3) #в миллисекундах
+        self.t2  = RandomValue(6.0, randt2, isRandom)  #Интервал поступления нового пакета
+        self.quality = quality
+
         #Переменные для вывода
+        self.cost = 10000               #стоимость передачи пакета за единицу времени
         self.allDistortions = 0.0       #общее качество пакетов
         self.countDestroingPackage = 0  #кол-во уничтоженных пакетов
         self.countCompletePackage = 0   #кол-во переданных пакетов
@@ -131,10 +119,27 @@ class System:
         self.event = ""
 
     def Update(self):
+        #обновляем таймер поступления нового пакета
+        if(self.timerNewPackage > 0.0):
+            self.timerNewPackage -= self.deltaTime
         for channel in self.Channels:
             channel.Update()
-            if(channel.acceleration and self.GetMessageQuality() > 0.2):
+            if(channel.acceleration and self.GetMessageQuality() > self.quality):
                 self.StandartSpeedChannels()
+
+            #обрабатываем поступление нового пакета
+            if(self.timerNewPackage <= 0.0 and not channel.havePackage):
+                #если канал не занят - передаём по нему пакет
+                channel.eventStr += "Канал " + str(channel.i) +" начал передачу пакета."
+                channel.havePackage = True
+                channel.distortions = 0.0 #обнуляем счётчик искажений
+                channel.packageComplete = 0.0 #обнуляем процент прибытия пакета
+                if(self.isRandom):
+                    channel.UpdateSpeed() #обновляем скорость (имеет смысл только для случайной модели, т.к. время может измениться)
+
+                #заного выставляем таймер
+                self.timerNewPackage = self.t2.Get()
+
         self.modelTime += self.deltaTime
 
     def AddCompletePackage(self, distortions):
@@ -182,5 +187,5 @@ class System:
     #Средняя стоимость передачи сообщения: сколько времени нужно, чтобы передать одно сообщение
     def GetCostTransmitting(self):
         if(self.countCompletePackage > 0):
-            return self.timeForCompletePackage * self.timeFactor/self.countCompletePackage 
+            return self.cost * self.timeForCompletePackage * self.timeFactor/self.countCompletePackage 
         else: return 0
