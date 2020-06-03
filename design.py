@@ -816,7 +816,7 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
-        MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
+        MainWindow.setWindowTitle(_translate("MainWindow", "Имитационное моделирование"))
         self.isRandom.setText(_translate("MainWindow", "Случайные процессы"))
         self.isRandomCorel.setText(_translate("MainWindow", "Возмущающие процессы"))
         self.label.setText(_translate("MainWindow", "Порог искажений"))
